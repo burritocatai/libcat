@@ -75,6 +75,66 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// For input views, handle special keys but pass others to the input
+		if m.view == ViewSearch {
+			switch msg.String() {
+			case "enter":
+				query := m.searchInput.Value()
+				if query != "" {
+					m.message = "Searching..."
+					return m, m.searchBooks(query)
+				}
+				return m, nil
+			case "esc":
+				m.view = ViewList
+				m.searchInput.Blur()
+				return m, nil
+			case "ctrl+c":
+				return m, tea.Quit
+			default:
+				// Pass key to text input
+				var cmd tea.Cmd
+				m.searchInput, cmd = m.searchInput.Update(msg)
+				return m, cmd
+			}
+		}
+
+		if m.view == ViewUpdatePage {
+			switch msg.String() {
+			case "enter":
+				pageStr := m.pageInput.Value()
+				if pageStr != "" {
+					var page int
+					if _, err := fmt.Sscanf(pageStr, "%d", &page); err == nil && page >= 0 {
+						if m.cursor < len(m.library.Books) {
+							m.library.Books[m.cursor].UpdatePage(page)
+							if err := m.storage.Save(m.library); err != nil {
+								m.err = err
+							} else {
+								m.message = fmt.Sprintf("Updated page to %d", page)
+							}
+						}
+					} else {
+						m.err = fmt.Errorf("invalid page number")
+					}
+				}
+				m.view = ViewList
+				m.pageInput.Blur()
+				return m, nil
+			case "esc":
+				m.view = ViewList
+				m.pageInput.Blur()
+				return m, nil
+			case "ctrl+c":
+				return m, tea.Quit
+			default:
+				// Pass key to text input
+				var cmd tea.Cmd
+				m.pageInput, cmd = m.pageInput.Update(msg)
+				return m, cmd
+			}
+		}
+
 		return m.handleKeyPress(msg)
 
 	case tea.WindowSizeMsg:
@@ -100,17 +160,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = len(m.library.Books) - 1
 		}
 		return m, nil
-	}
-
-	// Update text inputs if in relevant views
-	var cmd tea.Cmd
-	switch m.view {
-	case ViewSearch:
-		m.searchInput, cmd = m.searchInput.Update(msg)
-		return m, cmd
-	case ViewUpdatePage:
-		m.pageInput, cmd = m.pageInput.Update(msg)
-		return m, cmd
 	}
 
 	return m, nil
@@ -144,12 +193,8 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleListKeys(msg)
 	case ViewDetail:
 		return m.handleDetailKeys(msg)
-	case ViewSearch:
-		return m.handleSearchKeys(msg)
 	case ViewSearchResults:
 		return m.handleSearchResultsKeys(msg)
-	case ViewUpdatePage:
-		return m.handleUpdatePageKeys(msg)
 	}
 
 	return m, nil
@@ -211,21 +256,6 @@ func (m Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleSearchKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		query := m.searchInput.Value()
-		if query != "" {
-			m.message = "Searching..."
-			return m, m.searchBooks(query)
-		}
-	case "esc":
-		m.view = ViewList
-		m.searchInput.Blur()
-	}
-	return m, nil
-}
-
 func (m Model) handleSearchResultsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -245,34 +275,6 @@ func (m Model) handleSearchResultsKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = ViewList
 		m.searchResults = nil
 		m.cursor = 0
-	}
-	return m, nil
-}
-
-func (m Model) handleUpdatePageKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter":
-		pageStr := m.pageInput.Value()
-		if pageStr != "" {
-			var page int
-			if _, err := fmt.Sscanf(pageStr, "%d", &page); err == nil && page >= 0 {
-				if m.cursor < len(m.library.Books) {
-					m.library.Books[m.cursor].UpdatePage(page)
-					if err := m.storage.Save(m.library); err != nil {
-						m.err = err
-					} else {
-						m.message = fmt.Sprintf("Updated page to %d", page)
-					}
-				}
-			} else {
-				m.err = fmt.Errorf("invalid page number")
-			}
-		}
-		m.view = ViewList
-		m.pageInput.Blur()
-	case "esc":
-		m.view = ViewList
-		m.pageInput.Blur()
 	}
 	return m, nil
 }
