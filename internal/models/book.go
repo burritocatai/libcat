@@ -19,12 +19,13 @@ type Book struct {
 	Description string   `json:"description"`
 
 	// User tracking data
-	CurrentPage  int        `json:"current_page"`
-	Status       ReadStatus `json:"status"`
-	DateAdded    time.Time  `json:"date_added"`
-	DateStarted  *time.Time `json:"date_started,omitempty"`
-	DateFinished *time.Time `json:"date_finished,omitempty"`
-	Notes        string     `json:"notes"`
+	CurrentPage  int                `json:"current_page"`
+	PageHistory  []PageHistoryEntry `json:"page_history"`
+	Status       ReadStatus         `json:"status"`
+	DateAdded    time.Time          `json:"date_added"`
+	DateStarted  *time.Time         `json:"date_started,omitempty"`
+	DateFinished *time.Time         `json:"date_finished,omitempty"`
+	Notes        string             `json:"notes"`
 }
 
 // ReadStatus represents the reading status of a book
@@ -46,6 +47,14 @@ func (b *Book) Progress() float64 {
 
 // UpdatePage updates the current page and status
 func (b *Book) UpdatePage(page int) {
+	// Record history before updating (only if page actually changes)
+	if page != b.CurrentPage {
+		b.PageHistory = append(b.PageHistory, PageHistoryEntry{
+			Timestamp: time.Now(),
+			Page:      page,
+		})
+	}
+
 	b.CurrentPage = page
 
 	if page == 0 {
@@ -63,6 +72,57 @@ func (b *Book) UpdatePage(page int) {
 		}
 		b.Status = StatusReading
 	}
+}
+
+// GetReadingStats calculates reading statistics based on page history
+func (b *Book) GetReadingStats() (totalPagesRead, pagesPerDay float64, daysReading int) {
+	if len(b.PageHistory) == 0 {
+		return 0, 0, 0
+	}
+
+	// Find the first positive page count
+	firstPage := 0
+	for _, entry := range b.PageHistory {
+		if entry.Page > 0 {
+			firstPage = entry.Page
+			break
+		}
+	}
+
+	totalPagesRead = float64(b.CurrentPage - firstPage)
+	if totalPagesRead < 0 {
+		totalPagesRead = 0
+	}
+
+	// Calculate days between first and last entry
+	firstTime := b.PageHistory[0].Timestamp
+	lastTime := b.PageHistory[len(b.PageHistory)-1].Timestamp
+
+	duration := lastTime.Sub(firstTime).Hours() / 24
+	if duration > 0 {
+		pagesPerDay = totalPagesRead / duration
+		daysReading = int(duration) + 1
+	}
+
+	return
+}
+
+// GetRecentHistory returns the last N history entries
+func (b *Book) GetRecentHistory(n int) []PageHistoryEntry {
+	if len(b.PageHistory) == 0 {
+		return nil
+	}
+	start := len(b.PageHistory) - n
+	if start < 0 {
+		start = 0
+	}
+	return b.PageHistory[start:]
+}
+
+// PageHistoryEntry represents a single page progress entry
+type PageHistoryEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Page      int       `json:"page"`
 }
 
 // Library represents the user's book collection

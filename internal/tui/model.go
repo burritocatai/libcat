@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +22,7 @@ const (
 	ViewSearch
 	ViewSearchResults
 	ViewUpdatePage
+	ViewHistory
 )
 
 // Model is the main TUI model
@@ -245,6 +247,8 @@ func (m Model) handleListKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "h":
+		m.view = ViewHistory
 	case "u":
 		m.view = ViewUpdatePage
 		m.pageInput.SetValue("")
@@ -328,6 +332,8 @@ func (m Model) View() string {
 		content = m.renderSearchResultsView()
 	case ViewUpdatePage:
 		content = m.renderUpdatePageView()
+	case ViewHistory:
+		content = m.renderHistoryView()
 	}
 
 	// Add message/error at bottom
@@ -489,7 +495,7 @@ func (m Model) renderDetailView() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("u: update page • esc/q: back to list"))
+	b.WriteString(helpStyle.Render("u: update page • h: history • esc/q: back to list"))
 
 	return boxStyle.Render(b.String())
 }
@@ -571,6 +577,89 @@ func (m Model) renderUpdatePageView() string {
 	b.WriteString(helpStyle.Render("enter: save • esc: cancel"))
 
 	return b.String()
+}
+
+func (m Model) renderHistoryView() string {
+	if m.cursor >= len(m.library.Books) {
+		return "No book selected"
+	}
+
+	book := m.library.Books[m.cursor]
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("📊 Reading History"))
+	b.WriteString("\n\n")
+	b.WriteString(fmt.Sprintf("Book: %s\n", book.Title))
+	b.WriteString(strings.Repeat("-", len(book.Title)+6))
+	b.WriteString("\n\n")
+
+	if len(book.PageHistory) == 0 {
+		b.WriteString(mutedColorStyle.Render("No reading history recorded yet.\n"))
+		b.WriteString("\n")
+		b.WriteString(helpStyle.Render("esc/q: back"))
+		return b.String()
+	}
+
+	// Show statistics
+	totalPages, pagesPerDay, daysReading := book.GetReadingStats()
+	b.WriteString(labelStyle.Render("Statistics:"))
+	b.WriteString("\n")
+	if totalPages > 0 {
+		b.WriteString(valueStyle.Render(fmt.Sprintf("  Total pages read: %.0f\n", totalPages)))
+	}
+	if pagesPerDay > 0 {
+		b.WriteString(valueStyle.Render(fmt.Sprintf("  Average per day: %.1f pages\n", pagesPerDay)))
+	}
+	if daysReading > 0 {
+		b.WriteString(valueStyle.Render(fmt.Sprintf("  Days tracked: %d\n", daysReading)))
+	}
+	b.WriteString(valueStyle.Render(fmt.Sprintf("  History entries: %d\n", len(book.PageHistory))))
+	b.WriteString("\n")
+
+	// Show recent history (last 10 entries)
+	historyLimit := 10
+	entries := book.GetRecentHistory(historyLimit)
+
+	b.WriteString(labelStyle.Render("Recent History:"))
+	b.WriteString("\n")
+	b.WriteString(mutedColorStyle.Render("(newest first)"))
+	b.WriteString("\n\n")
+
+	// Show in reverse order (newest first)
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		timestamp := entry.Timestamp.Format("Jan 2, 2006 15:04")
+
+		// Add relative time
+		now := time.Now()
+		hours := int(now.Sub(entry.Timestamp).Hours())
+		var relative string
+		if hours < 24 {
+			if hours < 1 {
+				relative = "Just now"
+			} else {
+				relative = fmt.Sprintf("%dh ago", hours)
+			}
+		} else if hours < 48 {
+			relative = "Yesterday"
+		} else {
+			days := hours / 24
+			relative = fmt.Sprintf("%dd ago", days)
+		}
+
+		b.WriteString(mutedColorStyle.Render(fmt.Sprintf("  %s (%s)", timestamp, relative)))
+		b.WriteString("\n")
+		b.WriteString(valueStyle.Render(fmt.Sprintf("    → page %d / %d\n", entry.Page, book.PageCount)))
+	}
+
+	if historyLimit < len(book.PageHistory) {
+		b.WriteString(mutedColorStyle.Render(fmt.Sprintf("\n  ... and %d more entries\n", len(book.PageHistory)-historyLimit)))
+	}
+
+	b.WriteString("\n")
+	b.WriteString(helpStyle.Render("esc/q: back"))
+
+	return boxStyle.Render(b.String())
 }
 
 // mutedColor as a lipgloss style for rendering
